@@ -93,73 +93,102 @@ function DrawScene() {
     ctx.clearRect(0, 0, view.width, view.height);
 
     // Step 1: Transform models into canonical view volume using matrix functions in transforms.js
-    // if scene.view.type is perspective,
-    // loop over all models
-    // for each model, loop over all vertices
-    // transform them into perspective canonical view volume
-    // HINT: DO NOT OVERWRITE MODELS IN SCENE, scene is read-only variable
-    // once transformed, do clipping
-    // loop over all edges in model_array, clip lines
-    var vertex_array = []; // array of arrays containing each model's vertices
-    var edge_array = [] // array of arrays containing each model's edges
+    var vertex_array = []; // array of arrays containing each model's transformed vertices
     var near = scene.view.clip[4]; // near clipping plane
     var far = scene.view.clip[5]; // far clipping plane
     var view_window_matrix = new Matrix(4,4); // matrix for projecting onto view plane
     view_window_matrix.values = [[view.width/2, 0, 0, view.width/2], [0, view.height/2, 0, view.height/2], [0, 0, 1, 0], [0, 0, 0, 1]];
+    var zmin = -near/far;
+    var Mper = new Matrix(4, 4);
+    var Mpar = new Matrix(4, 4);
+    Mat4x4MPer(Mper);
+    Mat4x4MPar(Mpar);
     if (scene.view.type == 'perspective') {
-        var mper = new Matrix(4, 4);
-        Mat4x4Projection(mper, scene.view.prp, scene.view.srp, scene.view.vup, scene.view.clip);
-        console.log(mper); // ensuring correct calculations for mper, proven working
         for (let i = 0; i < scene.models.length; i++) {
+            // for every model, scene.models.matrix should have appropriate Nper matrix
+            Mat4x4Projection(scene.models[i].matrix, scene.view.prp, scene.view.srp, scene.view.vup, scene.view.clip);
             vertex_array.push([]); // push a blank array, populate with a model's transformed vertices
-            edge_array.push([]); // blank array to be populated with edge data
 
             for (let j = 0; j < scene.models[i].vertices.length; j++) {
-                var transform = Matrix.multiply([mper, scene.models[i].vertices[j]]);
-                console.log(transform);
+                var transform = Matrix.multiply([scene.models[i].matrix, scene.models[i].vertices[j]]);
                 vertex_array[i].push(transform);
             }
+        } // at this point we have vertex_array populated with the transformed vertices
+        // values are -1 to 1 if inside canonical view volume
 
-            for (let k = 0; k < scene.models[i].edges.length; k++) {
-                edge_array[i].push(scene.models[i].edges[k]);
-            }
-        }
-        console.log(vertex_array);
-        console.log(edge_array);
         // Step 2: For every line, Clip using Cohen-Sutherland 3D clipping for Parallel or Perspective
-        // once transformed, do clipping
-        // loop over all edges in edge_array, clip lines
+        // once transformed (as done above), do clipping
         for (let i = 0; i < scene.models.length; i++) {
             for (let j = 0; j < scene.models[i].edges.length; j++) {
                 for (let k = 0; k < (scene.models[i].edges[j].length)-1; k++) {
-                    var spot1 = scene.models[i].edges[j][k];
-                    var spot2 = scene.models[i].edges[j][k+1];
-                    var point1 = Matrix.multiply([view_window_matrix, vertex_array[i][spot1]]);
-                    var point2 = Matrix.multiply([view_window_matrix, vertex_array[i][spot2]]);
-                    console.log(spot1, spot2, point1, point2);
-                    DrawLine(point1.x, point1.y, point2.x, point2.y);
-                    //lineToDraw = clipLinePerspective(point1, point2, near, far);
-                    // if any porton still exists in view volume, project then draw
+                    var spot1 = scene.models[i].edges[j][k]; // index in vertex list
+                    var spot2 = scene.models[i].edges[j][k+1]; // index in vertex list
+                    var line_point1 = vertex_array[i][spot1]; // one endpoint of line to check
+                    var line_point2 = vertex_array[i][spot2]; // other endpoint of line to check
+                    var pending_line = clipLinePerspective(line_point1, line_point2, zmin);
+                    
 
-                    /*if (clippedLine != null) {
-                        // Step 2.1: Project onto view plane
-                        console.log("ClippedLine != null");
-                        var mper = new Matrix(4,4);
-                        Mat4x4MPer(mper);
-                        model_array.vertices[j] = Matrix.multiply([mper, model_array.vertices[i]]);
-
-                        // Step 2.2: Draw 2d lines
-                        DrawLine(point1.x, point1.y, point2.x, point2.y);
-                    } */
+                     // if any portion of the line still exists in canonical view volume, project and draw
+                     if(pending_line != null) {
+                         // Step 2.1: Project line onto view plane
+                         // Step 2.2: Draw the line
+                         console.log ("pending line not null: ")
+                         console.log(pending_line);
+                         pending_line.pt0 = Matrix.multiply([Mper, pending_line.pt0]);
+                         pending_line.pt1 = Matrix.multiply([Mper, pending_line.pt1]);
+                         pending_line.pt0 = Matrix.multiply([view_window_matrix, pending_line.pt0]);
+                         pending_line.pt1 = Matrix.multiply([view_window_matrix, pending_line.pt1]);
+                         DrawLine(pending_line.pt0.x/pending_line.pt0.w, pending_line.pt0.y/pending_line.pt0.w, pending_line.pt1.x/pending_line.pt1.w, pending_line.pt1.y/pending_line.pt1.w);
+                     }
                 }
             }
         }
     }
     else { // scene.view.type == 'parallel'
+    for (let i = 0; i < scene.models.length; i++) {
+        // for every model, scene.models.matrix should have appropriate Npar matrix
+        Mat4x4Parallel(scene.models[i].matrix, scene.view.prp, scene.view.srp, scene.view.vup, scene.view.clip);
+        vertex_array.push([]); // push a blank array, populate with a model's transformed vertices
+
+        for (let j = 0; j < scene.models[i].vertices.length; j++) {
+            var transform = Matrix.multiply([scene.models[i].matrix, scene.models[i].vertices[j]]);
+            vertex_array[i].push(transform);
+        }
+        console.log(scene.models[i].matrix);
+    } // at this point we have vertex_array populated with the transformed vertices
+    // values are -1 to 1 if inside canonical view volume
+
+    // Step 2: For every line, Clip using Cohen-Sutherland 3D clipping for Parallel or Perspective
+    // once transformed (as done above), do clipping
+    for (let i = 0; i < scene.models.length; i++) {
+        for (let j = 0; j < scene.models[i].edges.length; j++) {
+            for (let k = 0; k < (scene.models[i].edges[j].length)-1; k++) {
+                var spot1 = scene.models[i].edges[j][k]; // index in vertex list
+                var spot2 = scene.models[i].edges[j][k+1]; // index in vertex list
+                var line_point1 = vertex_array[i][spot1]; // one endpoint of line to check
+                var line_point2 = vertex_array[i][spot2]; // other endpoint of line to check
+                var pending_line = clipLineParallel(line_point1, line_point2);
+                
+
+                 // if any portion of the line still exists in canonical view volume, project and draw
+                 if(pending_line != null) {
+                     // Step 2.1: Project line onto view plane
+                     // Step 2.2: Draw the line
+                     console.log ("pending line not null: ")
+                     console.log(pending_line);
+                     pending_line.pt0 = Matrix.multiply([Mpar, pending_line.pt0]);
+                     pending_line.pt1 = Matrix.multiply([Mpar, pending_line.pt1]);
+                     pending_line.pt0 = Matrix.multiply([view_window_matrix, pending_line.pt0]);
+                     pending_line.pt1 = Matrix.multiply([view_window_matrix, pending_line.pt1]);
+                     DrawLine(pending_line.pt0.x/pending_line.pt0.w, pending_line.pt0.y/pending_line.pt0.w, pending_line.pt1.x/pending_line.pt1.w, pending_line.pt1.y/pending_line.pt1.w);
+                 }
+            }
+        }
     }
+    }
+}
 
     
-}
 
 // Called when user selects a new scene JSON file
 function LoadNewScene() {
@@ -213,14 +242,11 @@ function OnKeyDown(event) {
             console.log("left");
             var translateMatrix = new Matrix(4,4);
             var prp4 = Vector4(scene.view.prp.x, scene.view.prp.y, scene.view.prp.z, 1);
-            console.log(prp4);
             Mat4x4Translate(translateMatrix, -u.x, -u.y, -u.z);
             var finalprp = Matrix.multiply([translateMatrix, prp4]);
-            console.log(finalprp)
             scene.view.prp.x = finalprp.x;
             scene.view.prp.y = finalprp.y;
             scene.view.prp.z = finalprp.z;
-            console.log(scene.view.prp);
             var srp4 = Vector4(scene.view.srp.x, scene.view.srp.y, scene.view.srp.z, 1);
             var finalsrp = Matrix.multiply([translateMatrix, srp4]);
             scene.view.srp.x = finalsrp.x;
@@ -243,7 +269,7 @@ function OnKeyDown(event) {
             scene.view.srp.y = finalsrp.y;
             scene.view.srp.z = finalsrp.z;
             DrawScene();
-            break; 
+            break;
         case 39: // RIGHT Arrow
             console.log("right");
             var translateMatrix = new Matrix(4,4);
@@ -260,7 +286,7 @@ function OnKeyDown(event) {
             scene.view.srp.z = finalsrp.z;
             DrawScene();
             break;
-        case 40: // DOWN Arrow BACK
+        case 40: // DOWN Arrow, BACK
             console.log("down");
             var translateMatrix = new Matrix(4,4);
             var prp4 = Vector4(scene.view.prp.x, scene.view.prp.y, scene.view.prp.z, 1);
@@ -275,7 +301,6 @@ function OnKeyDown(event) {
             scene.view.srp.y = finalsrp.y;
             scene.view.srp.z = finalsrp.z;
             DrawScene();
-            break;
     }
 }
 
@@ -293,53 +318,63 @@ function DrawLine(x1, y1, x2, y2) {
 }
 
 function clipLineParallel(pt0, pt1) {
-    // Probably not correct, not a concern at the moment
     var done = false;
 	var line = null;
-	var endpt0 = new Vector(pt0.x, pt0.y, pt0.z, pt0.w);
-	var endpt1 = new Vector(pt1.x, pt1.y, pt1.z, pt0.w);
-    var outcode0, outcode1, selected_outcode, t;
-    var view_params = {xmin: 0, xmax: view.width - 1, ymin: 0, ymax: view.height - 1}
+	var endpt0 = new Vector4(pt0.x, pt0.y, pt0.z, pt0.w);
+    var endpt1 = new Vector4(pt1.x, pt1.y, pt1.z, pt1.w);
+    console.log(endpt0, endpt1);
+    var outcode0, outcode1, selected_point, selected_outcode, t;
+    var deltax = endpt1.x - endpt0.x;
+    var deltay = endpt1.y - endpt0.y;
+    var deltaz = endpt1.z - endpt0.z;
+    console.log(deltax, deltay, deltaz);
+    var loops = 0;
     
 	while (!done) {
-		outcode0 = outcode(endpt0, view);
-		outcode1 = outcode(endpt1, view);
-		console.log(outcode0, outcode1);
-		if ((outcode0 | outcode1) === 0) { // trivial accept
+        // t sometimes gets infinitely close to 0 and the for loop never wants to exit
+        outcode0 = outcodeParallel(endpt0);
+        outcode1 = outcodeParallel(endpt1);
+        console.log(outcode0, outcode1);
+        if ((outcode0 | outcode1) === 0) {
+            console.log("trivial accept"); // trivial accept
 			done = true;
-			line = {pt0: endpt0, pt1: endpt1};
+            line = {pt0: endpt0, pt1: endpt1};
+            break;
 		}
-		else if ((outcode0 & outcode1) !== 0) { // trivial reject
-			done = true;
+		else if ((outcode0 & outcode1) !== 0) {
+            console.log("trivial reject"); // trivial reject
+            done = true;
+            break;
 		}
 		else {
+            console.log("investigating further");
 			// choose endpoint that is outside view
 			if (outcode0 !== 0) {
-				selected_outcode = outcode0;
+                selected_point = endpt0;
+                selected_outcode = outcode0;
 			}
 			else {
-				selected_outcode = outcode1;
+                selected_point = endpt1;
+                selected_outcode = outcode1;
 			}
-			console.log(selected_outcode);
-			
 			// calculate t (for intersection point with corresponding plane)
 			if (selected_outcode & LEFT) {
-				t = (-endpnt0.x - endpt0.z) / (deltax - deltaz);
+                //t = ;
 			}
 			else if (selected_outcode & RIGHT) {
-				t = (endpt0.x - endpt0.z) / (-deltax - deltaz);
+                t = (selected_point.x + selected_point.z) / (-deltax - deltaz);
 			}
 			else if (selected_outcode & BOTTOM) {
-				t = (-endpt0.y + endpt0.z) / (deltay - deltaz);
+                t = (-selected_point.y + selected_point.z) / (deltay - deltaz);
 			}
 			else if (selected_outcode & TOPP) {
-				t = (endpt0.y + endpt0.z) / (-deltay - deltaz);
+                t = (selected_point.y + selected_point.z) / (-deltay - deltaz);
             }
             else if (selected_outcode & NEAR) {
-                t = (endpt0.z - zmin) / -deltaz;
+                t = (selected_point.z - zmin) / -deltaz;
             }
             else { // if (selected_outcode & FAR)
-                t = (-endpt.z - 1) / deltaz;
+                t = (-selected_point.z - 1) / deltaz;
             }
 			
 			// replace selected endpoint with intersection point
@@ -351,64 +386,74 @@ function clipLineParallel(pt0, pt1) {
 			else {
 				endpt1.x = endpt1.x + t * (endpt1.x - endpt0.x);
                 endpt1.y = endpt1.y + t * (endpt1.y - endpt0.y);
-                endpt1.z = endpt1.z + t * (endpt1.z - endpt0.z)
-			}
-		}
-	}
+                endpt1.z = endpt1.z + t * (endpt1.z - endpt0.z);
+            }
+            line = {pt0: endpt0, pt1: endpt1};
+        }
+        loops++;
+        if (loops > 5) {
+            // sometimes the loop gets stuck with t being really close to 0, so this should stop that
+            done = true;
+        }
+    }
 	return line;
 }
 
 
-function clipLinePerspective(pt0, pt1, near, far) { // create new copy of line that's the clipped version
+function clipLinePerspective(pt0, pt1, zmin) { // create new copy of line that's the clipped version
 	var done = false;
 	var line = null;
-	var endpt0 = new Vector (pt0.x, pt0.y, pt0.z, pt0.w);
-	var endpt1 = new Vector (pt1.x, pt1.y, pt1.z, pt1.w);
-    var outcode0, outcode1, selected_outcode, t;
+	var endpt0 = new Vector4(pt0.x, pt0.y, pt0.z, pt0.w);
+    var endpt1 = new Vector4(pt1.x, pt1.y, pt1.z, pt1.w);
+    console.log(endpt0, endpt1);
     var deltax = endpt1.x - endpt0.x;
     var deltay = endpt1.y - endpt0.y;
     var deltaz = endpt1.z - endpt0.z;
-    var zmin = -near/far; 
+    var outcode0, outcode1, selected_point, selected_outcode, t;
+    var loops = 0;
     
 	while (!done) {
-        outcode0 = outcodePerspective(endpt0, near, far);
-        console.log(outcode0);
-        outcode1 = outcodePerspective(endpt1, near, far);
-        console.log(outcode1);
-		if ((outcode0 | outcode1) === 0) { // trivial accept
+        // t sometimes gets infinitely close to 0 and the for loop never wants to exit
+        outcode0 = outcodePerspective(endpt0, zmin);
+        outcode1 = outcodePerspective(endpt1, zmin);
+        if ((outcode0 | outcode1) === 0) { // trivial accept
 			done = true;
-			line = {pt0: endpt0, pt1: endpt1};
+            line = {pt0: endpt0, pt1: endpt1};
+            break;
 		}
-		else if ((outcode0 & outcode1) !== 0) { // trivial reject
-			done = true;
+		else if ((outcode0 & outcode1) !== 0) {
+            console.log("trivial reject"); // trivial reject
+            done = true;
+            break;
 		}
 		else {
 			// choose endpoint that is outside view
 			if (outcode0 !== 0) {
-				selected_outcode = outcode0;
+                selected_point = endpt0;
+                selected_outcode = outcode0;
 			}
 			else {
-				selected_outcode = outcode1;
+                selected_point = endpt1;
+                selected_outcode = outcode1;
 			}
-			
 			// calculate t (for intersection point with corresponding plane)
 			if (selected_outcode & LEFT) {
-				t = (-endpt0.x - endpt0.z) / (deltax - deltaz);
+                t = (-selected_point.x + selected_point.z) / (deltax - deltaz);
 			}
 			else if (selected_outcode & RIGHT) {
-				t = (endpt0.x - endpt0.z) / (-deltax - deltaz);
+                t = (selected_point.x + selected_point.z) / (-deltax - deltaz);
 			}
 			else if (selected_outcode & BOTTOM) {
-				t = (-endpt0.y + endpt0.z) / (deltay - deltaz);
+                t = (-selected_point.y + selected_point.z) / (deltay - deltaz);
 			}
 			else if (selected_outcode & TOPP) {
-				t = (endpt0.y + endpt0.z) / (-deltay - deltaz);
+                t = (selected_point.y + selected_point.z) / (-deltay - deltaz);
             }
             else if (selected_outcode & NEAR) {
-                t = (endpt0.z - zmin) / -deltaz;
+                t = (selected_point.z - zmin) / -deltaz;
             }
             else { // if (selected_outcode & FAR)
-                t = (-endpt.z - 1) / deltaz;
+                t = (-selected_point.z - 1) / deltaz;
             }
 			
 			// replace selected endpoint with intersection point
@@ -420,32 +465,37 @@ function clipLinePerspective(pt0, pt1, near, far) { // create new copy of line t
 			else {
 				endpt1.x = endpt1.x + t * (endpt1.x - endpt0.x);
                 endpt1.y = endpt1.y + t * (endpt1.y - endpt0.y);
-                endpt1.z = endpt1.z + t * (endpt1.z - endpt0.z)
-			}
-		}
-	}
+                endpt1.z = endpt1.z + t * (endpt1.z - endpt0.z);
+            }
+            line = {pt0: endpt0, pt1: endpt1};
+        }
+        loops++;
+        if (loops > 5) {
+            // sometimes the loop gets stuck with t being really close to 0, so this should stop that
+            done = true;
+        }
+    }
 	return line;
 }
 
 function outcodeParallel(pt) {
 	var outcode = 0;
-	if (pt.x < -1) outcode += LEFT;
+    if (pt.x < -1) outcode += LEFT;
 	else if (pt.x > 1) outcode += RIGHT;
 	if (pt.y < -1) outcode += BOTTOM;
     else if (pt.y > 1) outcode += TOPP;
-    if (pt.z < 0) outcode += NEAR;
-    else if (pt.z > -1) outcode += FAR;
+    if (pt.z > 0) outcode += NEAR;
+    else if (pt.z < -1) outcode += FAR;
 	return outcode; 
 }
 
-function outcodePerspective(pt, near, far) {
+function outcodePerspective(pt, zmin) {
     var outcode = 0;
-    var z_min = -near/far;
     if (pt.x < pt.z) outcode += LEFT;
 	else if (pt.x > -pt.z) outcode += RIGHT;
 	if (pt.y < pt.z) outcode += BOTTOM;
     else if (pt.y > -pt.z) outcode += TOPP;
-    if (pt.z < z_min) outcode += NEAR;
-    else if (pt.z > -1) outcode += FAR;
+    if (pt.z > zmin) outcode += NEAR;
+    else if (pt.z < -1) outcode += FAR;
 	return outcode; 
 }
