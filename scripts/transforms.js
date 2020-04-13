@@ -23,17 +23,21 @@ function Mat4x4Parallel(mat4x4, prp, srp, vup, clip) {
     // 3. shear such that CW is on the z-axis
     var CW = Vector3((left+right)/2, (bottom+topp)/2, -near);
     var prp_vrc = Vector3(0, 0, 0);
-    var DOP = CW.subtract(prp);
+    var DOP = CW.subtract(prp_vrc);
     DOP.normalize();
+    console.log(DOP);
     var shxpar = (-DOP.x)/DOP.z;
+    console.log(shxpar);
     var shypar = (-DOP.y)/DOP.z;
+    console.log(shypar);
     var shpar = new Matrix(4,4);
     Mat4x4ShearXY(shpar, shxpar, shypar);
+    console.log(CW, DOP, shpar);
 
     // 4. translate near clipping plane to origin
     var tpar = new Matrix(4,4)
     Mat4x4Translate(tpar, 0, 0, near);
-    // might need to be negative near
+    console.log(tpar);
 
     // 5. scale such that view volume bounds are ([-1,1], [-1,1], [-1,0])
     var sparx = 2/(right-left);
@@ -41,13 +45,11 @@ function Mat4x4Parallel(mat4x4, prp, srp, vup, clip) {
     var sparz = 1/(far-near);
     var spar = new Matrix(4,4);
     Mat4x4Scale(spar, sparx, spary, sparz);
+    console.log(spar);
 
-    // 3D CLIPPING FOR PARALLEL HERE
-
-    //MPAR
-    var transform = Matrix.multiply(spar, tpar, shpar, rotate_matrix, t_negprp);
+    var transform = Matrix.multiply([spar, tpar, shpar, rotate_matrix, t_negprp]);
     mat4x4.values = transform.values;
-    Mat4x4MPar(mat4x4);
+    console.log(mat4x4.values);
 }
 
 // set values of mat4x4 to the parallel projection / view matrix
@@ -96,16 +98,12 @@ function Mat4x4Projection(mat4x4, prp, srp, vup, clip) {
 
 // set values of mat4x4 to project a parallel image on the z=0 plane
 function Mat4x4MPar(mat4x4) {
-    var mpar = new Matrix(4,4);
-    mpar = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]];
-    mat4x4.values = Matrix.multiply[mper, mat4x4];
+    mat4x4.values = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1]];
 }
 
 // set values of mat4x4 to project a perspective image on the z=-1 plane
 function Mat4x4MPer(mat4x4) {
-    var mper = new Matrix(4,4);
-    mper = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, -1, 0]];
-    mat4x4.values = Matrix.multiply([mper, mat4x4]);
+    mat4x4.values = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, -1, 0]];
 }
 
 
